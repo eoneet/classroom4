@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>방과후 상담 일정 예약</title>
+  <style>
+    :root {
+      --primary-color: #4a90e2;
+      --primary-hover: #357abd;
+      --bg-color: #f4f7f9;
+      --card-bg: #ffffff;
+      --text-color: #333333;
+      --disabled-color: #e0e0e0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; }
+    body { background-color: var(--bg-color); color: var(--text-color); padding: 20px; min-height: 100vh; }
+
+    .container { max-width: 800px; margin: 0 auto; background: var(--card-bg); border-radius: 12px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    h1 { text-align: center; margin-bottom: 20px; font-size: 1.6rem; color: #1a2530; }
+
+    /* 월선택 탭 */
+    .month-nav { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+    .month-btn { padding: 10px 18px; border: 1px solid #ddd; background: #fff; border-radius: 20px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .month-btn.active { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+
+    /* 달력 Grid */
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; margin-bottom: 24px; }
+    .day-header { font-weight: bold; padding: 8px 0; color: #666; font-size: 0.85rem; }
+    .day-header.sun { color: #e74c3c; }
+    .day-header.sat { color: #2980b9; }
+
+    .day-cell { padding: 12px 0; border-radius: 8px; border: 1px solid #eee; cursor: pointer; font-size: 0.95rem; background: #fff; position: relative; transition: 0.2s; }
+    .day-cell.empty { border: none; cursor: default; background: transparent; }
+    .day-cell.weekend { background: #fafafa; color: #bbb; cursor: not-allowed; }
+    .day-cell.active { border-color: var(--primary-color); background-color: #eef5fc; font-weight: bold; color: var(--primary-color); }
+    .day-cell:not(.empty):not(.weekend):hover { background-color: #f0f7ff; }
+
+    /* 타임슬롯 섹션 */
+    .slots-container { border-top: 2px solid #f0f0f0; padding-top: 20px; }
+    .slots-title { font-size: 1.1rem; margin-bottom: 12px; font-weight: bold; }
+    .slots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+
+    .slot-btn { padding: 14px; border: 2px solid var(--primary-color); background: #fff; color: var(--primary-color); border-radius: 8px; font-weight: bold; cursor: pointer; text-align: center; transition: 0.2s; }
+    .slot-btn:hover:not(:disabled) { background: var(--primary-color); color: #fff; }
+    .slot-btn:disabled { border-color: var(--disabled-color); background: var(--disabled-color); color: #888; cursor: not-allowed; }
+
+    /* 모달 레이어 */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: #fff; width: 90%; max-width: 420px; border-radius: 12px; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+    .modal h2 { margin-bottom: 16px; font-size: 1.3rem; }
+    
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; margin-bottom: 6px; font-size: 0.9rem; font-weight: bold; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95rem; }
+    .form-group textarea { resize: vertical; height: 80px; }
+
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .btn-secondary { background: #ccc; color: #333; }
+    .btn-primary { background: var(--primary-color); color: #fff; }
+    .btn-primary:disabled { background: #9ac2ec; cursor: not-allowed; }
+
+    /* 로딩 인디케이터 */
+    .loading-spinner { display: none; text-align: center; margin: 10px 0; color: var(--primary-color); font-weight: bold; }
+
+    @media (max-width: 480px) {
+      .container { padding: 16px; }
+      .day-cell { padding: 8px 0; font-size: 0.85rem; }
+      .slots-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>📅 방과후 상담 일정 예약</h1>
+
+  <div class="month-nav">
+    <button class="month-btn active" onclick="changeMonth(2026, 9)">10월</button>
+    <button class="month-btn" onclick="changeMonth(2026, 10)">11월</button>
+    <button class="month-btn" onclick="changeMonth(2026, 11)">12월</button>
+  </div>
+
+  <div class="calendar-grid" id="calendarGrid"></div>
+
+  <div class="slots-container" id="slotsContainer" style="display: none;">
+    <div class="slots-title" id="selectedDateTitle">날짜를 선택하세요</div>
+    <div class="slots-grid" id="slotsGrid"></div>
+  </div>
+</div>
+
+<!-- 예약 신청 모달 -->
+<div class="modal-overlay" id="bookingModal">
+  <div class="modal">
+    <h2>상담 예약 신청</h2>
+    <form id="bookingForm" onsubmit="submitForm(event)">
+      <div class="form-group">
+        <label>예약 일시</label>
+        <input type="text" id="modalDateTime" readonly style="background-color: #f0f0f0;">
+      </div>
+      <div class="form-group">
+        <label for="studentId">학번 (예: 10101)</label>
+        <input type="text" id="studentId" required placeholder="학번을 입력하세요">
+      </div>
+      <div class="form-group">
+        <label for="studentName">이름</label>
+        <input type="text" id="studentName" required placeholder="이름을 입력하세요">
+      </div>
+      <div class="form-group">
+        <label for="reason">상담 사유 / 내용</label>
+        <textarea id="reason" required placeholder="상담받고자 하는 내용을 간단히 작성해 주세요"></textarea>
+      </div>
+
+      <div class="loading-spinner" id="loadingSpinner">처리 중입니다. 잠시만 기다려주세요...</div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">취소</button>
+        <button type="submit" class="btn btn-primary" id="submitBtn">신청하기</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // 🔴 중요: 배포한 Google Apps Script Web App URL 입력
+  const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz877eF4JLUOggJDKfmi1yonNeWDh5GwiqL76y7mzPP9iZ7U9nDSjvab54AvZ0n619EZA/exec"; 
+
+  const TIME_SLOTS = [
+    "17:00 ~ 17:30",
+    "17:30 ~ 18:00",
+    "18:00 ~ 18:30",
+    "18:30 ~ 19:00"
+  ];
+
+  let currentYear = 2026;
+  let currentMonth = 9; // 0=1월, 9=10월
+  let selectedDate = null;
+  let selectedSlot = null;
+  let bookedData = []; // 서버에서 불러온 예약 목록
+
+  window.onload = () => {
+    fetchBookings();
+    renderCalendar();
+  };
+
+  // 구글 시트에서 기존 예약 현황 GET
+  async function fetchBookings() {
+    try {
+      const res = await fetch(GAS_WEB_APP_URL);
+      const data = await res.json();
+      if (data.status === "success") {
+        bookedData = data.bookings;
+        if (selectedDate) renderSlots(selectedDate);
+      }
+    } catch (err) {
+      console.error("예약 정보를 불러오는데 실패했습니다.", err);
+    }
+  }
+
+  // 월 변경
+  function changeMonth(year, month) {
+    currentYear = year;
+    currentMonth = month;
+    selectedDate = null;
+    document.getElementById("slotsContainer").style.display = "none";
+    
+    document.querySelectorAll(".month-btn").forEach((btn, idx) => {
+      btn.classList.toggle("active", idx === month - 9);
+    });
+    
+    renderCalendar();
+  }
+
+  // 달력 렌더링
+  function renderCalendar() {
+    const grid = document.getElementById("calendarGrid");
+    grid.innerHTML = "";
+
+    const dayHeaders = ["일", "월", "화", "수", "목", "금", "토"];
+    dayHeaders.forEach((day, idx) => {
+      const header = document.createElement("div");
+      header.className = `day-header ${idx === 0 ? 'sun' : idx === 6 ? 'sat' : ''}`;
+      header.innerText = day;
+      grid.appendChild(header);
+    });
+
+    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+    const lastDate = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+    for (let i = 0; i < firstDay; i++) {
+      const emptyCell = document.createElement("div");
+      emptyCell.className = "day-cell empty";
+      grid.appendChild(emptyCell);
+    }
+
+    for (let date = 1; date <= lastDate; date++) {
+      const cell = document.createElement("div");
+      const dateObj = new Date(currentYear, currentMonth, date);
+      const dayOfWeek = dateObj.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      const dateString = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+
+      cell.className = `day-cell ${isWeekend ? 'weekend' : ''}`;
+      cell.innerText = date;
+
+      if (!isWeekend) {
+        cell.onclick = () => selectDate(dateString, cell);
+      }
+
+      grid.appendChild(cell);
+    }
+  }
+
+  // 날짜 선택 시 타임슬롯 표시
+  function selectDate(dateStr, cellElem) {
+    document.querySelectorAll(".day-cell").forEach(c => c.classList.remove("active"));
+    cellElem.classList.add("active");
+
+    selectedDate = dateStr;
+    document.getElementById("selectedDateTitle").innerText = `📌 ${dateStr} 예약 시간 선택`;
+    document.getElementById("slotsContainer").style.display = "block";
+
+    renderSlots(dateStr);
+  }
+
+  // 타임슬롯 렌더링 (마감 처리 포함)
+  function renderSlots(dateStr) {
+    const grid = document.getElementById("slotsGrid");
+    grid.innerHTML = "";
+
+    TIME_SLOTS.forEach(slot => {
+      const isBooked = bookedData.some(b => b.date === dateStr && b.slot === slot);
+      
+      const btn = document.createElement("button");
+      btn.className = "slot-btn";
+      btn.innerText = isBooked ? `${slot}\n(마감)` : slot;
+      btn.disabled = isBooked;
+
+      if (!isBooked) {
+        btn.onclick = () => openModal(slot);
+      }
+
+      grid.appendChild(btn);
+    });
+  }
+
+  function openModal(slot) {
+    selectedSlot = slot;
+    document.getElementById("modalDateTime").value = `${selectedDate} / ${selectedSlot}`;
+    document.getElementById("bookingModal").classList.add("active");
+  }
+
+  function closeModal() {
+    document.getElementById("bookingModal").classList.remove("active");
+    document.getElementById("bookingForm").reset();
+  }
+
+  // 예약 데이터 POST 제출
+  async function submitForm(e) {
+    e.preventDefault();
+    
+    const submitBtn = document.getElementById("submitBtn");
+    const spinner = document.getElementById("loadingSpinner");
+    
+    submitBtn.disabled = true;
+    spinner.style.display = "block";
+
+    const payload = {
+      date: selectedDate,
+      slot: selectedSlot,
+      studentId: document.getElementById("studentId").value.trim(),
+      name: document.getElementById("studentName").value.trim(),
+      reason: document.getElementById("reason").value.trim()
+    };
+
+    try {
+      const response = await fetch(GAS_WEB_APP_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify(payload)
+      });
+      
+      const result = await response.json();
+
+      if (result.status === "success") {
+        alert("상담 예약이 성공적으로 완료되었습니다!");
+        closeModal();
+        await fetchBookings(); // 최신 목록으로 업데이트
+      } else {
+        alert(result.message || "오류가 발생했습니다.");
+        await fetchBookings();
+      }
+    } catch (err) {
+      alert("신청 처리 중 통신 오류가 발생했습니다.");
+    } finally {
+      submitBtn.disabled = false;
+      spinner.style.display = "none";
+    }
+  }
+</script>
+
+</body>
+</html>
